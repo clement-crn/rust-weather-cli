@@ -1,0 +1,23 @@
+
+On veut fetch la meteo des 7 jours a venir
+avec:
+-temp
+-symbole representation
+-indice UV
+
+Ex utilisation:
+-taper nom de ville
+==affichage meteo==
+>Prompt: Taper nouveau nom de ville ou un num pour choisir le jour dans la semaine
+-Si on tape un num, on affiche +details (a voir plus tard)
+
+----
+idee 
+Creer un objet day_weather?
+-id
+-jour
+-temp
+-indice UV
+-symbole ?
+
+Liste de day_weather (donc 7x day_weather)
