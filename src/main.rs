@@ -25,6 +25,7 @@ async fn fetch_coordinates(city: &str) -> Result<(f64, f64), Box<dyn std::error:
         city
     ))?;
     let response = reqwest::get(url).await?;
+    println!("Response: {:?}", response);
     let coordinates: Value = response.json().await?;
     let lat = coordinates["features"][0]["geometry"]["coordinates"][1]
         .as_f64()
@@ -40,33 +41,41 @@ async fn fetch_weather(
     lat: f64,
     lon: f64,
     city_name: &str,
-) -> Result<WeatherInfo, Box<dyn std::error::Error>> {
+) -> Result<Vec<WeatherInfo>, Box<dyn std::error::Error>> {
     dotenv().ok();
     let api_key = env::var("API_KEY")?;
     println!("API Key: {}", api_key);
 
     let url = Url::parse(&format!(
-        "https://api.openweathermap.org/data/2.5/weather?lat={}&lon={}&appid={}&units=metric",
+        "https://api.openweathermap.org/data/2.5/forecast?lat={}&lon={}&appid={}&units=metric",
         lat, lon, api_key
     ))?;
     let response = reqwest::get(url).await?;
     let weather: Value = response.json().await?;
+    println!("Weather Response: {:?}", weather);
 
-    let temperature = weather["main"]["temp"]
-        .as_f64()
-        .ok_or("Temperature not found")?;
-    let icon = weather["weather"][0]["icon"]
-        .as_str()
-        .ok_or("Icon not found")?
-        .to_string();
-    let rain_risk = weather["rain"]["1h"].as_f64().unwrap_or(0.0);
+    let list = weather["list"]
+        .as_array()
+        .ok_or("Forecast list not found")?;
+    let mut daily_forecast = Vec::new();
 
-    Ok(WeatherInfo {
-        city: city_name.to_string(),
-        temperature,
-        icon,
-        rain_risk,
-    })
+    for entry in list.iter().step_by(8).take(5) {
+        let temperature = entry["main"]["temp"].as_f64().unwrap_or(0.0);
+        let icon = entry["weather"][0]["icon"]
+            .as_str()
+            .ok_or("Icon not found")?
+            .to_string();
+        let rain_risk = entry["rain"]["3h"].as_f64().unwrap_or(0.0);
+
+        daily_forecast.push(WeatherInfo {
+            city: city_name.to_string(),
+            temperature,
+            icon,
+            rain_risk,
+        });
+    }
+
+    Ok(daily_forecast)
 }
 
 #[tokio::main]
@@ -74,8 +83,13 @@ async fn main() {
     match ask_city().await {
         Ok(city_name) => match fetch_coordinates(&city_name).await {
             Ok((lat, lon)) => match fetch_weather(lat, lon, &city_name).await {
-                Ok(weather_info) => {
-                    println!("Weather Info: {:?}", weather_info);
+                Ok(weather_forecast) => {
+                    for weather in weather_forecast {
+                        println!(
+                            r#"{{"city": "{}", "temperature": {}, "icon": "{}", "rain_risk": {}}}"#,
+                            weather.city, weather.temperature, weather.icon, weather.rain_risk
+                        );
+                    }
                 }
                 Err(e) => eprintln!("Error fetching weather: {}", e),
             },
