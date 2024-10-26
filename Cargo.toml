@@ -9,3 +9,6 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 dotenv = "0.15"
 tokio = { version = "1", features = ["full"] }
+tui = "0.19"       # Use the latest version if available
+crossterm = "0.26" # Or termion = "1.5"
+chrono = "0.4"

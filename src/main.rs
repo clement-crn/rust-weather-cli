@@ -1,7 +1,15 @@
+use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode};
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use dotenv::dotenv;
 use reqwest::Url;
 use serde_json::Value;
 use std::env;
+use std::io;
+use tui::backend::CrosstermBackend;
+use tui::layout::{Constraint, Direction, Layout};
+use tui::style::{Color, Style};
+use tui::widgets::{Block, Borders, Paragraph};
+use tui::Terminal;
 
 #[derive(Debug)]
 struct WeatherInfo {
@@ -78,23 +86,85 @@ async fn fetch_weather(
     Ok(daily_forecast)
 }
 
-#[tokio::main]
-async fn main() {
-    match ask_city().await {
-        Ok(city_name) => match fetch_coordinates(&city_name).await {
-            Ok((lat, lon)) => match fetch_weather(lat, lon, &city_name).await {
-                Ok(weather_forecast) => {
-                    for weather in weather_forecast {
-                        println!(
-                            r#"{{"city": "{}", "temperature": {}, "icon": "{}", "rain_risk": {}}}"#,
-                            weather.city, weather.temperature, weather.icon, weather.rain_risk
-                        );
-                    }
+async fn async_main(city: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let (lat, lon) = fetch_coordinates(city).await?;
+    let weather_forecast = fetch_weather(lat, lon, city).await?;
+
+    enable_raw_mode()?;
+    let stdout = io::stdout();
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
+
+    terminal.clear()?;
+    loop {
+        terminal.draw(|f| {
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints(
+                    [
+                        Constraint::Percentage(10),
+                        Constraint::Percentage(80),
+                        Constraint::Percentage(10),
+                    ]
+                    .as_ref(),
+                )
+                .split(f.size());
+
+            let main_content = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints(
+                    [
+                        Constraint::Percentage(10),
+                        Constraint::Percentage(80),
+                        Constraint::Percentage(10),
+                    ]
+                    .as_ref(),
+                )
+                .split(chunks[1]);
+
+            let title = Paragraph::new(city.to_string())
+                .style(Style::default().fg(Color::White))
+                .block(Block::default().borders(Borders::ALL));
+            f.render_widget(title, main_content[1]);
+
+            let day_chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(20); 5].as_ref())
+                .split(main_content[1]);
+
+            for (i, (day_chunk, forecast)) in
+                day_chunks.iter().zip(weather_forecast.iter()).enumerate()
+            {
+                let day_forecast = Paragraph::new(format!(
+                    "Temp: {:.1}°C\nRain: {:.1}mm\nIcon: {}",
+                    forecast.temperature, forecast.rain_risk, forecast.icon
+                ))
+                .style(Style::default().fg(Color::White))
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title(format!("Day {}", i + 1)),
+                );
+                f.render_widget(day_forecast, *day_chunk);
+            }
+        })?;
+
+        if crossterm::event::poll(std::time::Duration::from_millis(100))? {
+            if let Event::Key(key) = event::read()? {
+                if key.code == KeyCode::Char('q') {
+                    break;
                 }
-                Err(e) => eprintln!("Error fetching weather: {}", e),
-            },
-            Err(e) => eprintln!("Error fetching coordinates: {}", e),
-        },
-        Err(e) => eprintln!("Error reading city name: {}", e),
+            }
+        }
     }
+
+    disable_raw_mode()?;
+    terminal.show_cursor()?;
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let city_name = ask_city().await?;
+    async_main(&city_name).await
 }
